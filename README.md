@@ -2,80 +2,97 @@
 
 ## Overview
 
-This is an AI-first CRM system for managing Healthcare Professional (HCP) interactions for life science field representatives. It features a **Log Interaction Screen** with both **structured form** and **conversational chat** interfaces powered by a LangGraph AI Agent.
+An AI-first CRM for life science field representatives to manage Healthcare Professional (HCP) interactions. Features a dual-mode **Log Interaction Screen** with both a structured form and an AI-powered conversational chat interface. The LangGraph agent processes natural language, auto-fills the form, executes tools (logging, editing, searching, summarizing, scheduling), and displays results in real-time.
 
 ## Tech Stack
 
-- **Frontend**: React 18 + Redux Toolkit + Google Inter Font + Vite
-- **Backend**: Python FastAPI
-- **AI Agent**: LangGraph with Groq LLM (llama-3.3-70b-versatile)
-- **Database**: MySQL/PostgreSQL ready (SQLAlchemy)
-- **LLM**: Groq API (gemma2-9b-it compatible)
+- **Frontend**: React 18 + Redux Toolkit + Vite
+- **Backend**: Python FastAPI + Uvicorn
+- **AI Agent**: LangGraph (StateGraph) with Groq LLM (`llama-3.3-70b-versatile`)
+- **Database**: MySQL/PostgreSQL via SQLAlchemy (schema-ready)
+- **Styling**: Google Inter font, glass-morphism UI
+
+## Architecture
+
+### LangGraph Agent Flow
+
+```
+User Message → [llm_node] → JSON (tool_calls + response) → [tool_executor] → Result + Response
+```
+
+The agent uses a **2-node StateGraph**:
+1. **llm_node**: Receives chat history + system prompt, invokes Groq LLM, and extracts tool calls and response text from JSON output
+2. **tool_executor**: Iterates through requested tool calls, executes corresponding tools (`log_interaction`, `edit_interaction`, `search_hcps`, `get_interaction_summary`, `schedule_followup`), and attaches results
+
+The graph is compiled with `llm_node → tool_executor → END`.
+
+### Frontend Architecture (Redux)
+
+```
+App.jsx
+├── dispatch(fetchHCPs) on mount → populates HCP dropdown
+├── dispatch(fetchInteractions) → updates interactions list
+├── dispatch(sendChat) → POST /api/chat → updates chatHistory + formData
+├── dispatch(logInteraction) → POST /api/interactions/log
+├── Local state: chatHistory, formData, searchResults, interactionSummary, followups
+└── Scroll behavior: chat container scrolls internally, header is sticky
+```
+
+### AI Auto-Fill Mechanism
+
+When a user provides at least **hcp_name + date + time** in chat, the agent automatically calls `log_interaction` and the frontend fills the form with the extracted data. Missing optional fields receive sensible defaults:
+- `interaction_type` → "Call"
+- `outcome` → "Positive"
+- `topic` → "General Discussion"
+- `notes` → "Discussed healthcare topics"
+
+## UI Layout
+
+- **Sticky header**: Glass-effect background (opacity 0.85 + blur), stays fixed on scroll
+- **Left panel** (scrollable): Form, recent interactions, search results, interaction summaries, follow-ups
+- **Right panel** (scrolls independently): Chat messages with auto-scroll to bottom
+- Only the chat area scrolls internally — no full-page scrolling
 
 ## Key Features
 
-### 1. Log Interaction Screen
-- **Form Mode**: Traditional structured form for logging HCP interactions
-- **Chat Mode**: AI-powered conversational interface that understands natural language
+### 1. Dual-Mode Interaction Screen
+- **Form Mode**: Dropdowns for HCP name, interaction type, outcome; text inputs for specialty, topic, notes; date/time pickers
+- **Chat Mode**: Free-text input, processed by LangGraph agent, results auto-fill the form below
 
-### 2. LangGraph AI Agent with 5 Tools
+### 2. 5 LangGraph AI Tools
 
-The LangGraph agent provides 5 sales-related tools:
+| # | Tool | What It Does | Chat Example |
+|---|------|-------------|--------------|
+| 1 | `log_interaction` | Records HCP interaction with AI summarization + entity extraction | *"Log a call with Dr. Sarah about cardiology on 22/05/2026 at 11am"* |
+| 2 | `edit_interaction` | Modifies any field of a logged interaction | *"Change the date to 2026-06-15"* |
+| 3 | `search_hcps` | Searches HCPs by name, specialty, or hospital; results accumulate with dedup | *"Find all cardiologists"* |
+| 4 | `get_interaction_summary` | Retrieves interaction history for an HCP; dedup on successive calls | *"Show me interactions with Dr. Sarah"* |
+| 5 | `schedule_followup` | Schedules follow-up meetings; stored with status tracking | *"Schedule follow-up with Dr. Sarah on 2026-06-01 at 3pm"* |
 
-#### Tool 1: log_interaction (Working ✅)
-- Captures interaction data: HCP name, specialty, type, topic, notes, outcome, date, time
-- Uses LLM for **automatic summarization** of interactions
-- Performs **entity extraction** (drugs, locations mentioned)
-- Example: "Log a call with Dr. Sarah about cardiology on 22/05/2026 at 11am"
-
-#### Tool 2: edit_interaction (Working ✅)
-- Allows modification of logged interaction data
-- Can update any field: date, time, notes, outcome, topic, etc.
-- Example: "Change the date to 2026-06-15" or "Update notes to new information"
-
-#### Tool 3: search_hcps (Designed ✅)
-- Searches Healthcare Professionals by name, specialty, or hospital
-- Returns matching HCPs with their details
-- Example: "Find all cardiologists" or "Search for Dr. Sarah"
-
-#### Tool 4: get_interaction_summary (Designed ✅)
-- Retrieves summary of interactions with specific HCPs
-- Can show all interactions or filter by HCP name
-- Returns count and list of interactions
-- Example: "Show me interactions with Dr. Michael Chen"
-
-#### Tool 5: schedule_followup (Designed ✅)
-- Schedules follow-up meetings with HCPs
-- Stores follow-up details: HCP name, date, time, purpose, status
-- Example: "Schedule follow-up with Dr. Emily on 2026-06-01 at 3pm"
-
-### 3. Conversational AI Features
-- Natural language understanding for logging interactions
-- Automatic entity extraction from conversation
-- Smart date/time parsing (supports multiple formats)
-- Context-aware responses
+### 3. Smart Date/Time Parsing
+Handles multiple formats: `22/05/2026` → `2026-05-22`, `5pm` → `17:00`, `11am` → `11:00`. All dates normalized to ISO format.
 
 ## Project Structure
 
 ```
 hcp-crm/
 ├── backend/
-│   ├── main.py              # FastAPI application with API endpoints
-│   ├── langgraph_agent.py    # LangGraph agent with 5 AI tools
-│   ├── requirements.txt      # Python dependencies
-│   └── .env                  # Environment variables (Groq API key)
+│   ├── main.py                # FastAPI server (routes: /api/hcps, /api/chat, etc.)
+│   ├── langgraph_agent.py      # HCPAgent class: StateGraph, 5 tools, LLM summarization
+│   ├── requirements.txt        # Python dependencies
+│   └── .env                    # GROQ_API_KEY (not committed)
 ├── frontend/
-│   ├── index.html           # HTML entry point
-│   ├── vite.config.js       # Vite configuration
-│   ├── package.json         # NPM dependencies
+│   ├── index.html              # HTML entry
+│   ├── vite.config.js          # Vite config with React plugin
+│   ├── package.json            # NPM dependencies
 │   └── src/
-│       ├── main.jsx         # React entry point
-│       ├── App.jsx          # Main React component (Log Interaction Screen)
-│       ├── App.css          # Styles with Google Inter font
+│       ├── main.jsx            # React DOM render entry
+│       ├── App.jsx             # Main component: form + chat + results panels
+│       ├── App.css             # All styles: glass header, scroll containers, form layout
 │       └── store/
-│           ├── index.jsx    # Redux store configuration
-│           └── hcpSlice.jsx # Redux slice with async thunks
-└── README.md                # This file
+│           ├── index.jsx       # Redux store (configureStore)
+│           └── hcpSlice.jsx    # Redux slice: fetchHCPs, fetchInteractions, logInteraction, sendChat
+└── README.md
 ```
 
 ## Setup & Run
@@ -83,65 +100,39 @@ hcp-crm/
 ### Prerequisites
 - Node.js 18+
 - Python 3.8+
-- Groq API key (get from https://console.groq.com)
+- Groq API key (sign up at https://console.groq.com)
 
-### Backend Setup
+### Backend
 
 ```bash
 cd backend
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Create .env file with your Groq API key
-echo "GROQ_API_KEY=your_api_key_here" > .env
-
-# Run the server
+echo "GROQ_API_KEY=your_key_here" > .env
 python main.py
 ```
 
-Backend runs at: http://localhost:8000
+Backend → http://localhost:8000
 
-### Frontend Setup
+### Frontend
 
 ```bash
 cd frontend
-
-# Install dependencies
 npm install
-
-# Run the development server
 npm run dev
 ```
 
-Frontend runs at: http://localhost:5173
-
-### Running Both (Recommended)
-
-Open **2 separate terminals**:
-
-**Terminal 1 - Backend:**
-```bash
-cd C:\Users\amanm\hcp-crm\backend
-python main.py
-```
-
-**Terminal 2 - Frontend:**
-```bash
-cd C:\Users\amanm\hcp-crm\frontend
-npm run dev
-```
+Frontend → http://localhost:5173
 
 ## API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/hcps` | List all Healthcare Professionals |
+| GET | `/api/hcps` | List all 5 sample HCPs |
 | GET | `/api/interactions` | Get all logged interactions |
-| POST | `/api/interactions/log` | Log new interaction |
-| POST | `/api/interactions/edit` | Edit existing interaction |
-| POST | `/api/chat` | Chat with AI agent (uses LangGraph) |
-| GET | `/api/tools` | List all available AI tools |
+| POST | `/api/interactions/log` | Log a new interaction |
+| POST | `/api/interactions/edit` | Edit an interaction field |
+| POST | `/api/chat` | Chat with LangGraph agent |
+| GET | `/api/tools` | List available tools with parameters |
 
 ## Requirements
 
