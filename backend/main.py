@@ -24,6 +24,7 @@ class InteractionRequest(BaseModel):
     notes: Optional[str] = None
     outcome: Optional[str] = None
     date: Optional[str] = None
+    time: Optional[str] = None
 
 class ChatRequest(BaseModel):
     message: str
@@ -70,7 +71,8 @@ async def log_interaction(request: InteractionRequest):
             topic=request.topic,
             notes=request.notes,
             outcome=request.outcome,
-            date=request.date
+            date=request.date,
+            time=request.time
         )
         return result
     except Exception as e:
